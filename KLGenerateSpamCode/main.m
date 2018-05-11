@@ -24,8 +24,8 @@ void recursiveDirectory(NSString *directory, NSArray<NSString *> *ignoreDirNames
 void generateSpamCodeFile(NSString *outDirectory, NSString *mFilePath, GSCSourceType type);
 void generateSwiftSpamCodeFile(NSString *outDirectory, NSString *swiftFilePath);
 NSString *randomString(NSInteger length);
-void handleXcassetsFiles(NSString *directory);
-void deleteComments(NSString *directory);
+void handleXcassetsFiles(NSString *directory, NSArray<NSString *> *ignoreDirNames);
+void deleteComments(NSString *directory, NSArray<NSString *> *ignoreDirNames);
 void modifyProjectName(NSString *projectDir, NSString *oldName, NSString *newName);
 void modifyClassNamePrefix(NSMutableString *projectContent, NSString *sourceCodeDir, NSArray<NSString *> *ignoreDirNames, NSString *oldName, NSString *newName);
 
@@ -116,15 +116,19 @@ int main(int argc, const char * argv[]) {
         // default
         NSString *defaultPath = @"/Users/jzy/workspace/Wallpaper-iOS";
         NSArray *defaultTask = @[
-                                 @"-handleXcassets",
+//                                 @"-handleXcassets",
                                  @"-deleteComments",
                                  
-                                 @"-modifyProjectName",
-                                 @"Wallpaper>SOOPaper",
+//                                 @"-modifyProjectName",
+//                                 @"Wallpaper>SOOPaper",
                                  
-                                 @"-modifyClassNamePrefix",
-                                 [NSString stringWithFormat:@"%@/Wallpaper.xcodeproj", defaultPath],
-                                 @"SWP>SOO",
+//                                 @"-modifyClassNamePrefix",
+//                                 [NSString stringWithFormat:@"%@/Wallpaper.xcodeproj", defaultPath],
+//                                 @"SWP>SOO",
+                                 
+                                 @"-spamCodeOut",
+                                 @"/Users/jzy/workspace/Wallpaper-iOS/rubbish",
+                                 @"AppLog",
                                  
                                  @"ignoreDirNames",
                                  @"Pods"
@@ -261,13 +265,13 @@ int main(int argc, const char * argv[]) {
         // 执行任务
         if (needHandleXcassets) {
             @autoreleasepool {
-                handleXcassetsFiles(gSourceCodeDir);
+                handleXcassetsFiles(gSourceCodeDir, ignoreDirNames);
             }
             printf("修改 Xcassets 中的图片名称完成\n");
         }
         if (needDeleteComments) {
             @autoreleasepool {
-                deleteComments(gSourceCodeDir);
+                deleteComments(gSourceCodeDir, ignoreDirNames);
             }
             printf("删除注释和空行完成\n");
         }
@@ -524,14 +528,16 @@ void generateSwiftSpamCodeFile(NSString *outDirectory, NSString *swiftFilePath) 
 
 #pragma mark - 处理 Xcassets 中的图片文件
 
-void handleXcassetsFiles(NSString *directory) {
+void handleXcassetsFiles(NSString *directory, NSArray<NSString *> *ignoreDirNames) {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSArray<NSString *> *files = [fm contentsOfDirectoryAtPath:directory error:nil];
     BOOL isDirectory;
     for (NSString *fileName in files) {
         NSString *filePath = [directory stringByAppendingPathComponent:fileName];
         if ([fm fileExistsAtPath:filePath isDirectory:&isDirectory] && isDirectory) {
-            handleXcassetsFiles(filePath);
+            if (![ignoreDirNames containsObject:filePath]) {
+                handleXcassetsFiles(filePath, ignoreDirNames);
+            }
             continue;
         }
         if (![fileName isEqualToString:@"Contents.json"]) continue;
@@ -585,14 +591,16 @@ void handleXcassetsFiles(NSString *directory) {
 
 #pragma mark - 删除注释
 
-void deleteComments(NSString *directory) {
+void deleteComments(NSString *directory, NSArray<NSString *> *ignoreDirNames) {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSArray<NSString *> *files = [fm contentsOfDirectoryAtPath:directory error:nil];
     BOOL isDirectory;
     for (NSString *fileName in files) {
         NSString *filePath = [directory stringByAppendingPathComponent:fileName];
         if ([fm fileExistsAtPath:filePath isDirectory:&isDirectory] && isDirectory) {
-            deleteComments(filePath);
+            if (![ignoreDirNames containsObject:filePath]) {
+                deleteComments(filePath, ignoreDirNames);
+            }
             continue;
         }
         if (![fileName hasSuffix:@".h"] && ![fileName hasSuffix:@".m"] && ![fileName hasSuffix:@".swift"]) continue;
