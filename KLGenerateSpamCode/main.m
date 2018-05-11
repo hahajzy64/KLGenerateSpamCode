@@ -109,13 +109,38 @@ void renameFile(NSString *oldPath, NSString *newPath) {
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
         NSArray<NSString *> *arguments = [[NSProcessInfo processInfo] arguments];
-        if (!arguments || arguments.count <= 1) {
-            printf("缺少工程目录参数\n");
+        if (!arguments) {
+            printf("arguments nil");
             return 1;
         }
+        // default
+        NSString *defaultPath = @"/Users/jzy/workspace/Wallpaper-iOS";
+        NSArray *defaultTask = @[
+                                 @"-handleXcassets",
+                                 @"-deleteComments",
+                                 
+                                 @"-modifyProjectName",
+                                 @"Wallpaper>SOOPaper",
+                                 
+                                 @"-modifyClassNamePrefix",
+                                 [NSString stringWithFormat:@"%@/Wallpaper.xcodeproj", defaultPath],
+                                 @"SWP>SOO",
+                                 
+                                 @"ignoreDirNames",
+                                 @"Pods"
+                                 ];
+        
+        if (arguments.count <= 1) {
+            NSLog(@"缺少工程目录参数，添加默认路径：%@\n", defaultPath);
+            NSMutableArray *tempArr = [[NSMutableArray alloc] initWithArray:arguments];
+            [tempArr addObject:defaultPath];
+            arguments = tempArr;
+        }
         if (arguments.count <= 2) {
-            printf("缺少任务参数 -spamCodeOut or -handleXcassets or -deleteComments\n");
-            return 1;
+            NSLog(@"缺少任务参数, 添加默认任务:%@\n", defaultTask);
+            NSMutableArray *tempArr = [[NSMutableArray alloc] initWithArray:arguments];
+            [tempArr addObjectsFromArray:defaultTask];
+            arguments = tempArr;
         }
         
         BOOL isDirectory = NO;
@@ -132,6 +157,7 @@ int main(int argc, const char * argv[]) {
         NSFileManager *fm = [NSFileManager defaultManager];
         for (NSInteger i = 1; i < arguments.count; i++) {
             NSString *argument = arguments[i];
+            // 记录工程目录
             if (i == 1) {
                 gSourceCodeDir = argument;
                 if (![fm fileExistsAtPath:gSourceCodeDir isDirectory:&isDirectory]) {
@@ -144,15 +170,17 @@ int main(int argc, const char * argv[]) {
                 }
                 continue;
             }
-            
+            // 需要修改assets
             if ([argument isEqualToString:@"-handleXcassets"]) {
                 needHandleXcassets = YES;
                 continue;
             }
+            // 需要删除comment
             if ([argument isEqualToString:@"-deleteComments"]) {
                 needDeleteComments = YES;
                 continue;
             }
+            // 需要修改工程名
             if ([argument isEqualToString:@"-modifyProjectName"]) {
                 NSString *string = arguments[++i];
                 NSArray<NSString *> *names = [string componentsSeparatedByString:@">"];
@@ -168,6 +196,7 @@ int main(int argc, const char * argv[]) {
                 }
                 continue;
             }
+            // 需要修改文件前缀
             if ([argument isEqualToString:@"-modifyClassNamePrefix"]) {
                 NSString *string = arguments[++i];
                 projectFilePath = [string stringByAppendingPathComponent:@"project.pbxproj"];
@@ -191,6 +220,7 @@ int main(int argc, const char * argv[]) {
                 }
                 continue;
             }
+            // 需要添加垃圾代码
             if ([argument isEqualToString:@"-spamCodeOut"]) {
                 outDirString = arguments[++i];
                 if ([fm fileExistsAtPath:outDirString isDirectory:&isDirectory]) {
@@ -221,12 +251,14 @@ int main(int argc, const char * argv[]) {
                 
                 continue;
             }
+            // 记录需要忽略的文件，Pods
             if ([argument isEqualToString:@"-ignoreDirNames"]) {
                 ignoreDirNames = [arguments[++i] componentsSeparatedByString:@","];
                 continue;
             }
         }
         
+        // 执行任务
         if (needHandleXcassets) {
             @autoreleasepool {
                 handleXcassetsFiles(gSourceCodeDir);
