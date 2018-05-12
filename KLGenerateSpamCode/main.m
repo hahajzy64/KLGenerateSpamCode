@@ -27,7 +27,7 @@ NSString *randomString(NSInteger length);
 void handleXcassetsFiles(NSString *directory, NSArray<NSString *> *ignoreDirNames);
 void deleteComments(NSString *directory, NSArray<NSString *> *ignoreDirNames);
 void modifyProjectName(NSString *projectDir, NSString *oldName, NSString *newName);
-void modifyClassNamePrefix(NSMutableString *projectContent, NSString *sourceCodeDir, NSArray<NSString *> *ignoreDirNames, NSString *oldName, NSString *newName);
+NSString* modifyClassNamePrefix(NSMutableString *projectContent, NSString *sourceCodeDir, NSArray<NSString *> *ignoreDirNames, NSString *oldName, NSString *newName);
 
 NSString *gOutParameterName = nil;
 NSString *gSourceCodeDir = nil;
@@ -41,6 +41,33 @@ NSString *randomString(NSInteger length) {
         [ret appendFormat:@"%C", [kRandomAlphabet characterAtIndex:arc4random_uniform((uint32_t)[kRandomAlphabet length])]];
     }
     return ret;
+}
+
+// 枚举路径下所有文件名
+NSArray* getAllFilesName(NSString *directory, NSArray<NSString *> *ignoreDirNames) {
+    NSString *path;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSDirectoryEnumerator *dirEnum;
+    NSMutableArray *nameArray = [NSMutableArray new];
+    
+    dirEnum = [fm enumeratorAtPath:directory];
+    
+    BOOL isDirectory;
+    while ((path = [dirEnum nextObject]) != nil) {
+        NSString *absolutePath = [directory stringByAppendingPathComponent:path];
+        if ([fm fileExistsAtPath:absolutePath isDirectory:&isDirectory] && isDirectory) {
+            NSArray *fileComponent = path.pathComponents;
+            if (fileComponent.count>0) {
+                NSString *firstComponent = fileComponent[0];
+                if ([ignoreDirNames containsObject:firstComponent]) {
+                    [dirEnum skipDescendants]; // 跳过ignore的文件夹
+                }
+            }
+        } else {
+            [nameArray addObject:absolutePath];
+        }
+    }
+    return nameArray;
 }
 
 NSRange getOutermostCurlyBraceRange(NSString *string, unichar beginChar, unichar endChar, NSInteger beginIndex) {
@@ -79,7 +106,7 @@ NSString * getSwiftImportString(NSString *string) {
 BOOL regularReplacement(NSMutableString *originalString, NSString *regularExpression, NSString *newString) {
     __block BOOL isChanged = NO;
     BOOL isGroupNo1 = [newString isEqualToString:@"\\1"];
-    NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:regularExpression options:NSRegularExpressionAnchorsMatchLines|NSRegularExpressionUseUnixLineSeparators error:nil];
+    NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:regularExpression options:NSRegularExpressionAnchorsMatchLines|NSRegularExpressionUseUnixLineSeparators | NSRegularExpressionAllowCommentsAndWhitespace error:nil];
     NSArray<NSTextCheckingResult *> *matches = [expression matchesInString:originalString options:0 range:NSMakeRange(0, originalString.length)];
     [matches enumerateObjectsWithOptions:NSEnumerationReverse usingBlock:^(NSTextCheckingResult * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
         if (!isChanged) {
@@ -95,6 +122,7 @@ BOOL regularReplacement(NSMutableString *originalString, NSString *regularExpres
     return isChanged;
 }
 
+// 修改本地文件名
 void renameFile(NSString *oldPath, NSString *newPath) {
     NSError *error;
     [[NSFileManager defaultManager] moveItemAtPath:oldPath toPath:newPath error:&error];
@@ -117,21 +145,21 @@ int main(int argc, const char * argv[]) {
         NSString *defaultPath = @"/Users/jzy/workspace/Wallpaper-iOS";
         NSArray *defaultTask = @[
 //                                 @"-handleXcassets",
-                                 @"-deleteComments",
+//                                 @"-deleteComments",
                                  
 //                                 @"-modifyProjectName",
 //                                 @"Wallpaper>SOOPaper",
                                  
-//                                 @"-modifyClassNamePrefix",
-//                                 [NSString stringWithFormat:@"%@/Wallpaper.xcodeproj", defaultPath],
-//                                 @"SWP>SOO",
+                                 @"-modifyClassNamePrefix",
+                                 [NSString stringWithFormat:@"%@/Wallpaper.xcodeproj", defaultPath],
+                                 @"SWP>SOO",
                                  
-                                 @"-spamCodeOut",
-                                 @"/Users/jzy/workspace/Wallpaper-iOS/rubbish",
-                                 @"AppLog",
+//                                 @"-spamCodeOut",
+//                                 @"/Users/jzy/workspace/Wallpaper-iOS/rubbish",
+//                                 @"AppLog",
                                  
-                                 @"ignoreDirNames",
-                                 @"Pods"
+                                 @"-ignoreDirNames",
+                                 @"Pods,.git",
                                  ];
         
         if (arguments.count <= 1) {
@@ -164,6 +192,7 @@ int main(int argc, const char * argv[]) {
             // 记录工程目录
             if (i == 1) {
                 gSourceCodeDir = argument;
+                
                 if (![fm fileExistsAtPath:gSourceCodeDir isDirectory:&isDirectory]) {
                     printf("%s不存在\n", [gSourceCodeDir UTF8String]);
                     return 1;
@@ -255,7 +284,7 @@ int main(int argc, const char * argv[]) {
                 
                 continue;
             }
-            // 记录需要忽略的文件，Pods
+            // 记录需要忽略的文件夹,如Pods、 .git
             if ([argument isEqualToString:@"-ignoreDirNames"]) {
                 ignoreDirNames = [arguments[++i] componentsSeparatedByString:@","];
                 continue;
@@ -293,9 +322,9 @@ int main(int argc, const char * argv[]) {
                     return 1;
                 }
                 
-                modifyClassNamePrefix(projectContent, gSourceCodeDir, ignoreDirNames, oldClassNamePrefix, newClassNamePrefix);
+                NSString *newProjectContent = modifyClassNamePrefix(projectContent, gSourceCodeDir, ignoreDirNames, oldClassNamePrefix, newClassNamePrefix);
                 
-                [projectContent writeToFile:projectFilePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                [newProjectContent writeToFile:projectFilePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
             }
             printf("修改类名前缀完成\n");
         }
@@ -750,6 +779,7 @@ void modifyProjectName(NSString *projectDir, NSString *oldName, NSString *newNam
 
 #pragma mark - 修改类名前缀
 
+// 修改文件中内容
 void modifyFilesClassName(NSString *sourceCodeDir, NSString *oldClassName, NSString *newClassName) {
     // 文件内容 Const > DDConst (h,m,swift,xib,storyboard)
     NSFileManager *fm = [NSFileManager defaultManager];
@@ -769,7 +799,7 @@ void modifyFilesClassName(NSString *sourceCodeDir, NSString *oldClassName, NSStr
             NSMutableString *fileContent = [NSMutableString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error];
             if (error) {
                 printf("打开文件 %s 失败：%s\n", path.UTF8String, error.localizedDescription.UTF8String);
-                abort();
+                abort(); // 程序异常退出
             }
             
             NSString *regularExpression = [NSString stringWithFormat:@"\\b%@\\b", oldClassName];
@@ -785,71 +815,139 @@ void modifyFilesClassName(NSString *sourceCodeDir, NSString *oldClassName, NSStr
     }
 }
 
-void modifyClassNamePrefix(NSMutableString *projectContent, NSString *sourceCodeDir, NSArray<NSString *> *ignoreDirNames, NSString *oldName, NSString *newName) {
-    NSFileManager *fm = [NSFileManager defaultManager];
+NSString* modifyClassNamePrefix(NSMutableString *projectContent, NSString *sourceCodeDir, NSArray<NSString *> *ignoreDirNames, NSString *oldName, NSString *newName) {
     
-    // 遍历源代码文件 h 与 m 配对，swift
-    NSArray<NSString *> *files = [fm contentsOfDirectoryAtPath:sourceCodeDir error:nil];
-    BOOL isDirectory;
-    for (NSString *filePath in files) {
-        NSString *path = [sourceCodeDir stringByAppendingPathComponent:filePath];
-        if ([fm fileExistsAtPath:path isDirectory:&isDirectory] && isDirectory) {
-            if (![ignoreDirNames containsObject:filePath]) {
-                modifyClassNamePrefix(projectContent, path, ignoreDirNames, oldName, newName);
-            }
-            continue;
-        }
+    NSArray *allFilePaths = getAllFilesName(sourceCodeDir, ignoreDirNames);
+    
+    NSMutableArray *modifyOriginNameArr = [NSMutableArray new];
+    for (NSString *filePath in allFilePaths) {
+        static int progress = 0;
+        printf("progress:%d/%lu\n", ++progress, (unsigned long)allFilePaths.count);
         
-        NSString *fileName = filePath.lastPathComponent.stringByDeletingPathExtension;
-        NSString *fileExtension = filePath.pathExtension;
-        NSString *newClassName;
-        if ([fileName hasPrefix:oldName]) {
-            newClassName = [newName stringByAppendingString:[fileName substringFromIndex:oldName.length]];
-        } else {
-            newClassName = [newName stringByAppendingString:fileName];
-        }
+        NSString *oldFileTotleName = filePath.lastPathComponent;
+        NSString *oldFileName = filePath.lastPathComponent.stringByDeletingPathExtension;
+        NSString *oldFilePath = filePath;
+        NSString *oldFileExtension = filePath.pathExtension;
         
-        // 文件名 Const.ext > DDConst.ext
-        if ([fileExtension isEqualToString:@"h"]) {
-            NSString *mFileName = [fileName stringByAppendingPathExtension:@"m"];
-            if ([files containsObject:mFileName]) {
-                NSString *oldFilePath = [[sourceCodeDir stringByAppendingPathComponent:fileName] stringByAppendingPathExtension:@"h"];
-                NSString *newFilePath = [[sourceCodeDir stringByAppendingPathComponent:newClassName] stringByAppendingPathExtension:@"h"];
-                renameFile(oldFilePath, newFilePath);
-                oldFilePath = [[sourceCodeDir stringByAppendingPathComponent:fileName] stringByAppendingPathExtension:@"m"];
-                newFilePath = [[sourceCodeDir stringByAppendingPathComponent:newClassName] stringByAppendingPathExtension:@"m"];
-                renameFile(oldFilePath, newFilePath);
-                oldFilePath = [[sourceCodeDir stringByAppendingPathComponent:fileName] stringByAppendingPathExtension:@"xib"];
-                if ([fm fileExistsAtPath:oldFilePath]) {
-                    newFilePath = [[sourceCodeDir stringByAppendingPathComponent:newClassName] stringByAppendingPathExtension:@"xib"];
-                    renameFile(oldFilePath, newFilePath);
-                }
-                
-                @autoreleasepool {
-                    modifyFilesClassName(gSourceCodeDir, fileName, newClassName);
-                }
-            } else {
-                continue;
-            }
-        } else if ([fileExtension isEqualToString:@"swift"]) {
-            NSString *oldFilePath = [[sourceCodeDir stringByAppendingPathComponent:fileName] stringByAppendingPathExtension:@"swift"];
-            NSString *newFilePath = [[sourceCodeDir stringByAppendingPathComponent:newClassName] stringByAppendingPathExtension:@"swift"];
-            renameFile(oldFilePath, newFilePath);
-            oldFilePath = [[sourceCodeDir stringByAppendingPathComponent:fileName] stringByAppendingPathExtension:@"xib"];
-            if ([fm fileExistsAtPath:oldFilePath]) {
-                newFilePath = [[sourceCodeDir stringByAppendingPathComponent:newClassName] stringByAppendingPathExtension:@"xib"];
-                renameFile(oldFilePath, newFilePath);
-            }
+        if ([oldFileTotleName hasPrefix:oldName] && ([oldFileExtension isEqualToString:@"h"] || [oldFileExtension isEqualToString:@"m"] || [oldFileExtension isEqualToString:@"swift"] || [oldFileExtension isEqualToString:@"xib"])) {
+            NSString *newFileTotalName = [newName stringByAppendingString:[oldFileTotleName substringFromIndex:oldName.length]];
+//            NSString *newFileName = newFileTotalName.stringByDeletingPathExtension;
+            NSString *newFilePath = [oldFilePath.stringByDeletingLastPathComponent stringByAppendingPathComponent:newFileTotalName];
             
-            @autoreleasepool {
-                modifyFilesClassName(gSourceCodeDir, fileName.stringByDeletingPathExtension, newClassName);
+            // 修改本地文件名
+            renameFile(oldFilePath, newFilePath);
+            // 修改文件中文件名
+//            @autoreleasepool {
+//                modifyFilesClassName(gSourceCodeDir, oldFileName, newFileName);
+//            }
+            
+            if (![modifyOriginNameArr containsObject:oldFileName]) {
+                [modifyOriginNameArr addObject:oldFileName];
             }
+            // 修改工程文件中的文件名
+//            NSString *regularExpression = [NSString stringWithFormat:@"\\b%@\\b", oldFileName];
+//            regularReplacement(projectContent, regularExpression, newFileName);
         } else {
-            continue;
+            continue; //名字开头不匹配则不改名
         }
-        
-        // 修改工程文件中的文件名
-        NSString *regularExpression = [NSString stringWithFormat:@"\\b%@\\b", fileName];
-        regularReplacement(projectContent, regularExpression, newClassName);
     }
+    
+    for (NSString *originFileName in modifyOriginNameArr) {
+        static int progress = 0;
+        printf("progress:%d/%lu\n", ++progress, (unsigned long)modifyOriginNameArr.count);
+        
+        @autoreleasepool {
+            NSString *newFileName = [newName stringByAppendingString:[originFileName substringFromIndex:oldName.length]];
+            // 修改文件中文件名
+            for (NSString *originFilePath in allFilePaths) {
+                NSString *fileName = originFilePath.lastPathComponent;
+                if ([fileName hasSuffix:@".h"] || [fileName hasSuffix:@".m"] || [fileName hasSuffix:@".pch"] || [fileName hasSuffix:@".swift"] || [fileName hasSuffix:@".xib"] || [fileName hasSuffix:@".storyboard"]) {
+                    NSString *newFilePath = [originFilePath stringByReplacingOccurrencesOfString:oldName withString:newName];
+                    NSError *error = nil;
+                    NSMutableString *fileContent = [NSMutableString stringWithContentsOfFile:newFilePath encoding:NSUTF8StringEncoding error:&error];
+                    if (error) {
+                        printf("打开文件 %s 失败：%s\n", newFilePath.UTF8String, error.localizedDescription.UTF8String);
+                        abort(); // 程序异常退出
+                    }
+                    
+                    NSMutableString *newFileContent = [NSMutableString stringWithString:[fileContent stringByReplacingOccurrencesOfString:originFileName withString:newFileName]];
+                    error = nil;
+                    [newFileContent writeToFile:newFilePath atomically:YES encoding:NSUTF8StringEncoding error:&error];
+                    if (error) {
+                        printf("保存文件 %s 失败：%s\n", newFilePath.UTF8String, error.localizedDescription.UTF8String);
+                        abort();
+                    }
+                }
+            }
+            // 修改工程文件中的文件名
+            NSMutableString *newProjectContent = [NSMutableString stringWithString:[projectContent stringByReplacingOccurrencesOfString:originFileName withString:newFileName]];
+            projectContent = newProjectContent;
+        }
+    }
+    return projectContent;
+//    NSFileManager *fm = [NSFileManager defaultManager];
+//    // 遍历源代码文件 h 与 m 配对，swift
+//    NSArray<NSString *> *files = [fm contentsOfDirectoryAtPath:sourceCodeDir error:nil];
+//    BOOL isDirectory;
+//    for (NSString *filePath in files) {
+//        NSString *path = [sourceCodeDir stringByAppendingPathComponent:filePath];
+//        if ([fm fileExistsAtPath:path isDirectory:&isDirectory] && isDirectory) {
+//            if (![ignoreDirNames containsObject:filePath]) {
+//                modifyClassNamePrefix(projectContent, path, ignoreDirNames, oldName, newName);
+//            }
+//            continue;
+//        }
+//
+//        NSString *fileName = filePath.lastPathComponent.stringByDeletingPathExtension;
+//        NSString *fileExtension = filePath.pathExtension;
+//        NSString *newClassName;
+//        if ([fileName hasPrefix:oldName]) {
+//            newClassName = [newName stringByAppendingString:[fileName substringFromIndex:oldName.length]];
+//        } else {
+//            newClassName = [newName stringByAppendingString:fileName]; //名字开头不匹配则不改名
+//        }
+//
+//        // 文件名 Const.ext > DDConst.ext
+//        if ([fileExtension isEqualToString:@"h"]) {
+//            NSString *mFileName = [fileName stringByAppendingPathExtension:@"m"];
+//            if ([files containsObject:mFileName]) {
+//                NSString *oldFilePath = [[sourceCodeDir stringByAppendingPathComponent:fileName] stringByAppendingPathExtension:@"h"];
+//                NSString *newFilePath = [[sourceCodeDir stringByAppendingPathComponent:newClassName] stringByAppendingPathExtension:@"h"];
+//                renameFile(oldFilePath, newFilePath);
+//                oldFilePath = [[sourceCodeDir stringByAppendingPathComponent:fileName] stringByAppendingPathExtension:@"m"];
+//                newFilePath = [[sourceCodeDir stringByAppendingPathComponent:newClassName] stringByAppendingPathExtension:@"m"];
+//                renameFile(oldFilePath, newFilePath);
+//                oldFilePath = [[sourceCodeDir stringByAppendingPathComponent:fileName] stringByAppendingPathExtension:@"xib"];
+//                if ([fm fileExistsAtPath:oldFilePath]) {
+//                    newFilePath = [[sourceCodeDir stringByAppendingPathComponent:newClassName] stringByAppendingPathExtension:@"xib"];
+//                    renameFile(oldFilePath, newFilePath);
+//                }
+//
+//                @autoreleasepool {
+//                    modifyFilesClassName(gSourceCodeDir, fileName, newClassName);
+//                }
+//            } else {
+//                continue;
+//            }
+//        } else if ([fileExtension isEqualToString:@"swift"]) {
+//            NSString *oldFilePath = [[sourceCodeDir stringByAppendingPathComponent:fileName] stringByAppendingPathExtension:@"swift"];
+//            NSString *newFilePath = [[sourceCodeDir stringByAppendingPathComponent:newClassName] stringByAppendingPathExtension:@"swift"];
+//            renameFile(oldFilePath, newFilePath);
+//            oldFilePath = [[sourceCodeDir stringByAppendingPathComponent:fileName] stringByAppendingPathExtension:@"xib"];
+//            if ([fm fileExistsAtPath:oldFilePath]) {
+//                newFilePath = [[sourceCodeDir stringByAppendingPathComponent:newClassName] stringByAppendingPathExtension:@"xib"];
+//                renameFile(oldFilePath, newFilePath);
+//            }
+//
+//            @autoreleasepool {
+//                modifyFilesClassName(gSourceCodeDir, fileName.stringByDeletingPathExtension, newClassName);
+//            }
+//        } else {
+//            continue;
+//        }
+//
+//        // 修改工程文件中的文件名
+//        NSString *regularExpression = [NSString stringWithFormat:@"\\b%@\\b", fileName];
+//        regularReplacement(projectContent, regularExpression, newClassName);
+//    }
 }
