@@ -23,25 +23,19 @@ typedef NS_ENUM(NSInteger, GSCSourceType) {
 void recursiveDirectory(NSString *directory, NSArray<NSString *> *ignoreDirNames, void(^handleMFile)(NSString *mFilePath), void(^handleSwiftFile)(NSString *swiftFilePath));
 void generateSpamCodeFile(NSString *outDirectory, NSString *mFilePath, GSCSourceType type);
 void generateSwiftSpamCodeFile(NSString *outDirectory, NSString *swiftFilePath);
+void createSpamCode(NSString *directory, NSArray<NSString *> *ignoreDirNames);
+
 NSString *randomString(NSInteger length);
 void handleXcassetsFiles(NSString *directory, NSArray<NSString *> *ignoreDirNames);
 void deleteComments(NSString *directory, NSArray<NSString *> *ignoreDirNames);
 void modifyProjectName(NSString *projectDir, NSString *oldName, NSString *newName);
 NSString* modifyClassNamePrefix(NSMutableString *projectContent, NSString *sourceCodeDir, NSArray<NSString *> *ignoreDirNames, NSString *oldName, NSString *newName);
 
-NSString *gOutParameterName = nil;
+//NSString *gOutParameterName = nil;
 NSString *gSourceCodeDir = nil;
+NSArray *randomParameterNameArr = nil;
 
 #pragma mark - 公共方法
-
-static const NSString *kRandomAlphabet = @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-NSString *randomString(NSInteger length) {
-    NSMutableString *ret = [NSMutableString stringWithCapacity:length];
-    for (int i = 0; i < length; i++) {
-        [ret appendFormat:@"%C", [kRandomAlphabet characterAtIndex:arc4random_uniform((uint32_t)[kRandomAlphabet length])]];
-    }
-    return ret;
-}
 
 // 枚举路径下所有文件名
 NSArray* getAllFilesName(NSString *directory, NSArray<NSString *> *ignoreDirNames) {
@@ -68,6 +62,57 @@ NSArray* getAllFilesName(NSString *directory, NSArray<NSString *> *ignoreDirName
         }
     }
     return nameArray;
+}
+
+NSString* randomParameterName() {
+    if (randomParameterNameArr.count>0){
+        NSInteger index = arc4random()%randomParameterNameArr.count;
+        return randomParameterNameArr[index];
+    }
+    return @"";
+}
+
+NSString* randomClassName() {
+    NSString *class1 = @"NSString";
+    NSString *class2 = @"UIView";
+    
+    NSArray *strArr = @[class1, class2];
+    NSInteger index = arc4random()%strArr.count;
+    return strArr[index];
+}
+
+NSString* randomMethodContent(NSString *gOutParameterName) {
+    // 1
+    NSString *str1 = [NSString stringWithFormat:@"    NSString *stringParameter = [NSString stringWithFormat:@\"%%@\", %@];\n", gOutParameterName];
+    NSString *str2 = @"    NSArray *gOutParameterNameArr = [[NSArray alloc] initWithObjects:stringParameter, stringParameter, nil];\n";
+    NSString *str3 = @"    for (NSString *str in gOutParameterNameArr) {\n        NSLog(@\"str:%@\", str);\n    }\n";
+    NSString *content1 = [[str1 stringByAppendingString:str2] stringByAppendingString:str3];
+    // 2
+    NSString *content2 = [NSString stringWithFormat:@"    NSLog(@\"%%@\", %@);\n", gOutParameterName];
+    
+    NSArray *strArr = @[content1, content2];
+    NSInteger index = arc4random()%strArr.count;
+    return strArr[index];
+}
+
+BOOL isEnglishFirst(NSString *str) {
+    NSString *regular = @"^[A-Za-z].+$";
+    NSPredicate *predicate = [NSPredicate predicateWithFormat:@"SELF MATCHES %@", regular];
+    
+    if ([predicate evaluateWithObject:str] == YES){
+        return YES;
+    }else{
+        return NO;
+    }
+}
+
+static const NSString *kRandomAlphabet = @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+NSString *randomString(NSInteger length) {
+    NSMutableString *ret = [NSMutableString stringWithCapacity:length];
+    for (int i = 0; i < length; i++) {
+        [ret appendFormat:@"%C", [kRandomAlphabet characterAtIndex:arc4random_uniform((uint32_t)[kRandomAlphabet length])]];
+    }
+    return ret;
 }
 
 NSRange getOutermostCurlyBraceRange(NSString *string, unichar beginChar, unichar endChar, NSInteger beginIndex) {
@@ -144,22 +189,24 @@ int main(int argc, const char * argv[]) {
         // default
         NSString *defaultPath = @"/Users/jzy/workspace/Wallpaper-iOS";
         NSArray *defaultTask = @[
+                                 @"-ignoreDirNames",
+                                 @"Pods,.git",
 //                                 @"-handleXcassets",
 //                                 @"-deleteComments",
                                  
 //                                 @"-modifyProjectName",
 //                                 @"Wallpaper>SOOPaper",
                                  
-                                 @"-modifyClassNamePrefix",
-                                 [NSString stringWithFormat:@"%@/Wallpaper.xcodeproj", defaultPath],
-                                 @"SWP>SOO",
+//                                 @"-modifyClassNamePrefix",
+//                                 [NSString stringWithFormat:@"%@/Wallpaper.xcodeproj", defaultPath],
+//                                 @"SWP>SOO",
                                  
 //                                 @"-spamCodeOut",
 //                                 @"/Users/jzy/workspace/Wallpaper-iOS/rubbish",
-//                                 @"AppLog",
+//                                 @"AppLog,Context,isLocal",
                                  
-                                 @"-ignoreDirNames",
-                                 @"Pods,.git",
+                                 @"-spamCodeInFile",
+                                 @"AppLog,Context,isLocal",
                                  ];
         
         if (arguments.count <= 1) {
@@ -201,6 +248,11 @@ int main(int argc, const char * argv[]) {
                     printf("%s不是目录\n", [gSourceCodeDir UTF8String]);
                     return 1;
                 }
+                continue;
+            }
+            // 记录需要忽略的文件夹,如Pods、 .git
+            if ([argument isEqualToString:@"-ignoreDirNames"]) {
+                ignoreDirNames = [arguments[++i] componentsSeparatedByString:@","];
                 continue;
             }
             // 需要修改assets
@@ -271,12 +323,16 @@ int main(int argc, const char * argv[]) {
                 
                 i++;
                 if (i < arguments.count) {
-                    gOutParameterName = arguments[i];
-                    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"[a-zA-Z]+" options:0 error:nil];
-                    if ([regex numberOfMatchesInString:gOutParameterName options:0 range:NSMakeRange(0, gOutParameterName.length)] <= 0) {
-                        printf("缺少垃圾代码参数名，或参数名\"%s\"不合法(需要字母开头)\n", [gOutParameterName UTF8String]);
-                        return 1;
+                    NSString *parameters = arguments[i];
+                    randomParameterNameArr = [parameters componentsSeparatedByString:@","];
+                    for (NSString *gOutParameterName in randomParameterNameArr) {
+                        NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"[a-zA-Z]+" options:0 error:nil];
+                        if ([regex numberOfMatchesInString:gOutParameterName options:0 range:NSMakeRange(0, gOutParameterName.length)] <= 0) {
+                            printf("缺少垃圾代码参数名，或参数名\"%s\"不合法(需要字母开头)\n", [gOutParameterName UTF8String]);
+                            return 1;
+                        }
                     }
+                    
                 } else {
                     printf("缺少垃圾代码参数名，参数名需要根在输出目录后面\n");
                     return 1;
@@ -284,10 +340,17 @@ int main(int argc, const char * argv[]) {
                 
                 continue;
             }
-            // 记录需要忽略的文件夹,如Pods、 .git
-            if ([argument isEqualToString:@"-ignoreDirNames"]) {
-                ignoreDirNames = [arguments[++i] componentsSeparatedByString:@","];
-                continue;
+            if ([argument isEqualToString:@"-spamCodeInFile"]) {
+                NSString *parameters = arguments[++i];
+                randomParameterNameArr = [parameters componentsSeparatedByString:@","];
+                for (NSString *gOutParameterName in randomParameterNameArr) {
+                    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"[a-zA-Z]+" options:0 error:nil];
+                    if ([regex numberOfMatchesInString:gOutParameterName options:0 range:NSMakeRange(0, gOutParameterName.length)] <= 0) {
+                        printf("缺少垃圾代码参数名，或参数名\"%s\"不合法(需要字母开头)\n", [gOutParameterName UTF8String]);
+                        return 1;
+                    }
+                }
+                createSpamCode(gSourceCodeDir, ignoreDirNames);
             }
         }
         
@@ -346,7 +409,68 @@ int main(int argc, const char * argv[]) {
 }
 
 #pragma mark - 生成垃圾代码
+// 新方法
+void createSpamCode(NSString *directory, NSArray<NSString *> *ignoreDirNames) {
+    NSArray *allFilePaths = getAllFilesName(directory, ignoreDirNames);
+    for (NSString *filePath in allFilePaths) {
+        if ((![filePath hasSuffix:@".h"] && ![filePath hasSuffix:@".m"]) || [filePath containsString:@"+"]) {
+            continue;
+        }
+        NSError *error;
+        NSString *fileContent = [NSString stringWithContentsOfFile:filePath encoding:NSUTF8StringEncoding error:&error];
+        if (error) {
+            printf("error:%s\n", error.localizedDescription.UTF8String);
+            continue;
+        }
+        NSRange range = [fileContent rangeOfString:@"@implementation"];
+        if(range.location == NSNotFound){
+            continue;
+        }
+        // 查找方法
+        NSString *implementation = [fileContent substringFromIndex:range.location];
+        NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:@"^ *([-+])[^)?]+\\)([^;{]+)" options:NSRegularExpressionAnchorsMatchLines|NSRegularExpressionUseUnicodeWordBoundaries error:nil];
+        NSArray<NSTextCheckingResult *> *matches = [expression matchesInString:implementation options:0 range:NSMakeRange(0, implementation.length)];
+        if (matches.count <= 0) return;
+        
+        // 生成 h m 垃圾文件内容
+        NSMutableString *hFileMethodsString = [NSMutableString string];
+        NSMutableString *mFileMethodsString = [NSMutableString string];
+        [matches enumerateObjectsUsingBlock:^(NSTextCheckingResult * _Nonnull matche, NSUInteger idx, BOOL * _Nonnull stop) {
+            NSString *symbol = [implementation substringWithRange:[matche rangeAtIndex:1]];
+            NSString *methodName = [[implementation substringWithRange:[matche rangeAtIndex:2]] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            NSString *gOutParameterName = randomParameterName();
+            if (isEnglishFirst(methodName) && ![methodName containsString:@"API_AVAILABLE"] && ![methodName containsString:@"_"]) {
+                if ([methodName containsString:@":"]) {
+                    methodName = [methodName stringByAppendingFormat:@" %@:(NSString *)%@", gOutParameterName, gOutParameterName];
+                } else {
+                    methodName = [methodName stringByAppendingFormat:@"%@:(NSString *)%@", gOutParameterName.capitalizedString, gOutParameterName];
+                }
+                
+                [hFileMethodsString appendFormat:@"%@ (void)%@;\n", symbol, methodName];
+                
+                [mFileMethodsString appendFormat:@"%@ (void)%@ {\n", symbol, methodName];
+                //            [mFileMethodsString appendFormat:@"    NSLog(@\"%%@\", %@);\n", gOutParameterName];
+                [mFileMethodsString appendFormat:@"%@", randomMethodContent(gOutParameterName)];
+                [mFileMethodsString appendString:@"}\n"];
+            }
+        }];
+        
+        range = [fileContent rangeOfString:@"@end"options:NSBackwardsSearch];
+        if(range.location == NSNotFound){
+            continue;
+        }
+        NSString *headContent = [fileContent substringToIndex:range.location];
+        if ([filePath hasSuffix:@".h"]) {
+            headContent = [headContent stringByAppendingString:hFileMethodsString];
+        } else if ([filePath hasSuffix:@".m"]) {
+            headContent = [headContent stringByAppendingString:mFileMethodsString];
+        }
+        headContent = [headContent stringByAppendingString:@"\n@end"];
+        [headContent writeToFile:filePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+}
 
+// 旧方法
 void recursiveDirectory(NSString *directory, NSArray<NSString *> *ignoreDirNames, void(^handleMFile)(NSString *mFilePath), void(^handleSwiftFile)(NSString *swiftFilePath)) {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSArray<NSString *> *files = [fm contentsOfDirectoryAtPath:directory error:nil];
@@ -373,6 +497,7 @@ void recursiveDirectory(NSString *directory, NSArray<NSString *> *ignoreDirNames
     }
 }
 
+// 查找.h和.m里的"#import"，生成一个包含所有"#import"的String
 NSString * getImportString(NSString *hFileContent, NSString *mFileContent) {
     NSMutableString *ret = [NSMutableString string];
     
@@ -424,7 +549,7 @@ void generateSpamCodeFile(NSString *outDirectory, NSString *mFilePath, GSCSource
     NSString *hFilePath = [mFilePath.stringByDeletingPathExtension stringByAppendingPathExtension:@"h"];
     NSString *hFileContent = [NSString stringWithContentsOfFile:hFilePath encoding:NSUTF8StringEncoding error:nil];
     
-    // 准备要引入的文件
+    // 准备要引入的文件"#import"
     NSString *importString = getImportString(hFileContent, mFileContent);
     
     [matches enumerateObjectsUsingBlock:^(NSTextCheckingResult * _Nonnull impResult, NSUInteger idx, BOOL * _Nonnull stop) {
@@ -445,27 +570,31 @@ void generateSpamCodeFile(NSString *outDirectory, NSString *mFilePath, GSCSource
 
         // 查找方法
         NSString *implementation = [mFileContent substringWithRange:impResult.range];
-        NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:@"^ *([-+])[^)]+\\)([^;{]+)" options:NSRegularExpressionAnchorsMatchLines|NSRegularExpressionUseUnicodeWordBoundaries error:nil];
+        NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:@"^ *([-+])[^)?]+\\)([^;{]+)" options:NSRegularExpressionAnchorsMatchLines|NSRegularExpressionUseUnicodeWordBoundaries error:nil];
         NSArray<NSTextCheckingResult *> *matches = [expression matchesInString:implementation options:0 range:NSMakeRange(0, implementation.length)];
         if (matches.count <= 0) return;
         
         // 生成 h m 垃圾文件内容
         NSMutableString *hFileMethodsString = [NSMutableString string];
         NSMutableString *mFileMethodsString = [NSMutableString string];
+        NSString *gOutParameterName = randomParameterName();
         [matches enumerateObjectsUsingBlock:^(NSTextCheckingResult * _Nonnull matche, NSUInteger idx, BOOL * _Nonnull stop) {
             NSString *symbol = [implementation substringWithRange:[matche rangeAtIndex:1]];
             NSString *methodName = [[implementation substringWithRange:[matche rangeAtIndex:2]] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-            if ([methodName containsString:@":"]) {
-                methodName = [methodName stringByAppendingFormat:@" %@:(NSString *)%@", gOutParameterName, gOutParameterName];
-            } else {
-                methodName = [methodName stringByAppendingFormat:@"%@:(NSString *)%@", gOutParameterName.capitalizedString, gOutParameterName];
+            if (isEnglishFirst(methodName) && ![methodName containsString:@"API_AVAILABLE"] && ![methodName containsString:@"_"]) {
+                if ([methodName containsString:@":"]) {
+                    methodName = [methodName stringByAppendingFormat:@" %@:(NSString *)%@", gOutParameterName, gOutParameterName];
+                } else {
+                    methodName = [methodName stringByAppendingFormat:@"%@:(NSString *)%@", gOutParameterName.capitalizedString, gOutParameterName];
+                }
+                
+                [hFileMethodsString appendFormat:@"%@ (void)%@;\n", symbol, methodName];
+                
+                [mFileMethodsString appendFormat:@"%@ (void)%@ {\n", symbol, methodName];
+                //            [mFileMethodsString appendFormat:@"    NSLog(@\"%%@\", %@);\n", gOutParameterName];
+                [mFileMethodsString appendFormat:@"%@", randomMethodContent(gOutParameterName)];
+                [mFileMethodsString appendString:@"}\n"];
             }
-            
-            [hFileMethodsString appendFormat:@"%@ (void)%@;\n", symbol, methodName];
-            
-            [mFileMethodsString appendFormat:@"%@ (void)%@ {\n", symbol, methodName];
-            [mFileMethodsString appendFormat:@"    NSLog(@\"%%@\", %@);\n", gOutParameterName];
-            [mFileMethodsString appendString:@"}\n"];
         }];
         
         NSString *newCategoryName;
@@ -524,6 +653,7 @@ void generateSwiftSpamCodeFile(NSString *outDirectory, NSString *swiftFilePath) 
         if (matches.count <= 0) return;
         
         NSMutableString *methodsString = [NSMutableString string];
+        NSString *gOutParameterName = randomParameterName();
         [matches enumerateObjectsUsingBlock:^(NSTextCheckingResult * _Nonnull funcResult, NSUInteger idx, BOOL * _Nonnull stop) {
             NSRange funcNameRange = [funcResult rangeAtIndex:1];
             NSString *funcName = [classContent substringWithRange:funcNameRange];
