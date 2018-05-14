@@ -201,12 +201,12 @@ int main(int argc, const char * argv[]) {
 //                                 [NSString stringWithFormat:@"%@/Wallpaper.xcodeproj", defaultPath],
 //                                 @"SWP>SOO",
                                  
-//                                 @"-spamCodeOut",
-//                                 @"/Users/jzy/workspace/Wallpaper-iOS/rubbish",
-//                                 @"AppLog,Context,isLocal",
-                                 
-                                 @"-spamCodeInFile",
+                                 @"-spamCodeOut",
+                                 @"/Users/jzy/workspace/Wallpaper-iOS/rubbish",
                                  @"AppLog,Context,isLocal",
+                                 
+//                                 @"-spamCodeInFile",
+//                                 @"AppLog,Context,isLocal",
                                  ];
         
         if (arguments.count <= 1) {
@@ -520,14 +520,15 @@ NSString * getImportString(NSString *hFileContent, NSString *mFileContent) {
     return ret;
 }
 
-static NSString *const kHClassFileTemplate = @"\
+// 直接生成垃圾文件
+static NSString *const NHClassFileTemplate = @"\
 %@\n\
-@interface %@ (%@)\n\
+@interface %@ : NSObject\n\
 %@\n\
 @end\n";
-static NSString *const kMClassFileTemplate = @"\
-#import \"%@+%@.h\"\n\
-@implementation %@ (%@)\n\
+static NSString *const NMClassFileTemplate = @"\
+#import \"%@.h\"\n\
+@implementation %@\n\
 %@\n\
 @end\n";
 void generateSpamCodeFile(NSString *outDirectory, NSString *mFilePath, GSCSourceType type) {
@@ -567,7 +568,7 @@ void generateSpamCodeFile(NSString *outDirectory, NSString *mFilePath, GSCSource
                 return;
             }
         }
-
+        
         // 查找方法
         NSString *implementation = [mFileContent substringWithRange:impResult.range];
         NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:@"^ *([-+])[^)?]+\\)([^;{]+)" options:NSRegularExpressionAnchorsMatchLines|NSRegularExpressionUseUnicodeWordBoundaries error:nil];
@@ -607,10 +608,109 @@ void generateSpamCodeFile(NSString *outDirectory, NSString *mFilePath, GSCSource
                 break;
         }
         
+        NSString *newClassName = [NSString stringWithFormat:@"%@%@", className, newCategoryName];
+        NSString *fileName = [NSString stringWithFormat:@"%@%@.h", className, newCategoryName];
+        NSString *fileContent = [NSString stringWithFormat:NHClassFileTemplate, importString, newClassName, hFileMethodsString];
+        [fileContent writeToFile:[outDirectory stringByAppendingPathComponent:fileName] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        
+        fileName = [NSString stringWithFormat:@"%@%@.m", className, newCategoryName];
+        fileContent = [NSString stringWithFormat:NMClassFileTemplate, newClassName, newClassName, mFileMethodsString];
+        [fileContent writeToFile:[outDirectory stringByAppendingPathComponent:fileName] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }];
+}
+
+// 生成Category垃圾文件
+static NSString *const kHClassFileTemplate = @"\
+%@\n\
+@interface %@ (%@)\n\
+%@\n\
+@end\n";
+static NSString *const kMClassFileTemplate = @"\
+#import \"%@+%@.h\"\n\
+@implementation %@ (%@)\n\
+%@\n\
+@end\n";
+void generateCategorySpamCodeFile(NSString *outDirectory, NSString *mFilePath, GSCSourceType type) {
+    NSString *mFileContent = [NSString stringWithContentsOfFile:mFilePath encoding:NSUTF8StringEncoding error:nil];
+    NSString *regexStr;
+    switch (type) {
+        case GSCSourceTypeClass:
+            regexStr = @" *@implementation +(\\w+)[^(]*\\n(?:.|\\n)+?@end";
+            break;
+        case GSCSourceTypeCategory:
+            regexStr = @" *@implementation *(\\w+) *\\((\\w+)\\)(?:.|\\n)+?@end";
+            break;
+    }
+
+    NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:regexStr options:NSRegularExpressionUseUnicodeWordBoundaries error:nil];
+    NSArray<NSTextCheckingResult *> *matches = [expression matchesInString:mFileContent options:0 range:NSMakeRange(0, mFileContent.length)];
+    if (matches.count <= 0) return;
+
+    NSString *hFilePath = [mFilePath.stringByDeletingPathExtension stringByAppendingPathExtension:@"h"];
+    NSString *hFileContent = [NSString stringWithContentsOfFile:hFilePath encoding:NSUTF8StringEncoding error:nil];
+
+    // 准备要引入的文件"#import"
+    NSString *importString = getImportString(hFileContent, mFileContent);
+
+    [matches enumerateObjectsUsingBlock:^(NSTextCheckingResult * _Nonnull impResult, NSUInteger idx, BOOL * _Nonnull stop) {
+        NSString *className = [mFileContent substringWithRange:[impResult rangeAtIndex:1]];
+        NSString *categoryName = nil;
+        if (impResult.numberOfRanges >= 3) {
+            categoryName = [mFileContent substringWithRange:[impResult rangeAtIndex:2]];
+        }
+
+        if (type == GSCSourceTypeClass) {
+            // 如果该类型没有公开，只在 .m 文件中使用，则不处理
+            NSString *regexStr = [NSString stringWithFormat:@"\\b%@\\b", className];
+            NSRange range = [hFileContent rangeOfString:regexStr options:NSRegularExpressionSearch];
+            if (range.location == NSNotFound) {
+                return;
+            }
+        }
+
+        // 查找方法
+        NSString *implementation = [mFileContent substringWithRange:impResult.range];
+        NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:@"^ *([-+])[^)?]+\\)([^;{]+)" options:NSRegularExpressionAnchorsMatchLines|NSRegularExpressionUseUnicodeWordBoundaries error:nil];
+        NSArray<NSTextCheckingResult *> *matches = [expression matchesInString:implementation options:0 range:NSMakeRange(0, implementation.length)];
+        if (matches.count <= 0) return;
+
+        // 生成 h m 垃圾文件内容
+        NSMutableString *hFileMethodsString = [NSMutableString string];
+        NSMutableString *mFileMethodsString = [NSMutableString string];
+        NSString *gOutParameterName = randomParameterName();
+        [matches enumerateObjectsUsingBlock:^(NSTextCheckingResult * _Nonnull matche, NSUInteger idx, BOOL * _Nonnull stop) {
+            NSString *symbol = [implementation substringWithRange:[matche rangeAtIndex:1]];
+            NSString *methodName = [[implementation substringWithRange:[matche rangeAtIndex:2]] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (isEnglishFirst(methodName) && ![methodName containsString:@"API_AVAILABLE"] && ![methodName containsString:@"_"]) {
+                if ([methodName containsString:@":"]) {
+                    methodName = [methodName stringByAppendingFormat:@" %@:(NSString *)%@", gOutParameterName, gOutParameterName];
+                } else {
+                    methodName = [methodName stringByAppendingFormat:@"%@:(NSString *)%@", gOutParameterName.capitalizedString, gOutParameterName];
+                }
+
+                [hFileMethodsString appendFormat:@"%@ (void)%@;\n", symbol, methodName];
+
+                [mFileMethodsString appendFormat:@"%@ (void)%@ {\n", symbol, methodName];
+                //            [mFileMethodsString appendFormat:@"    NSLog(@\"%%@\", %@);\n", gOutParameterName];
+                [mFileMethodsString appendFormat:@"%@", randomMethodContent(gOutParameterName)];
+                [mFileMethodsString appendString:@"}\n"];
+            }
+        }];
+
+        NSString *newCategoryName;
+        switch (type) {
+            case GSCSourceTypeClass:
+                newCategoryName = gOutParameterName.capitalizedString;
+                break;
+            case GSCSourceTypeCategory:
+                newCategoryName = [NSString stringWithFormat:@"%@%@", categoryName, gOutParameterName.capitalizedString];
+                break;
+        }
+
         NSString *fileName = [NSString stringWithFormat:@"%@+%@.h", className, newCategoryName];
         NSString *fileContent = [NSString stringWithFormat:kHClassFileTemplate, importString, className, newCategoryName, hFileMethodsString];
         [fileContent writeToFile:[outDirectory stringByAppendingPathComponent:fileName] atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        
+
         fileName = [NSString stringWithFormat:@"%@+%@.m", className, newCategoryName];
         fileContent = [NSString stringWithFormat:kMClassFileTemplate, className, newCategoryName, className, newCategoryName, mFileMethodsString];
         [fileContent writeToFile:[outDirectory stringByAppendingPathComponent:fileName] atomically:YES encoding:NSUTF8StringEncoding error:nil];
